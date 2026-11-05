@@ -1,0 +1,24 @@
+{
+  "name": "agent-trace-viewer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "A local viewer for AI agent traces in OpenTelemetry's GenAI conventions: runs, model calls, tool calls and tokens",
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "start": "node src/main.ts",
+    "typecheck": "tsc",
+    "test": "node --test --test-timeout=30000 test/*.test.ts"
+  },
+  "devDependencies": {
+    "@opentelemetry/api": "^1.10.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.300.0",
+    "@opentelemetry/resources": "^3.0.0",
+    "@opentelemetry/sdk-trace": "^3.0.0",
+    "@types/node": "^24.19.2",
+    "typescript": "^7.0.2"
+  }
+}

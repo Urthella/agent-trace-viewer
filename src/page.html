@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent traces</title>
+<style>
+  :root {
+    --bg: #fbfbfa; --fg: #1f2328; --muted: #6b7078; --line: #e3e3e0; --hover: #f1f1ee; --selected: #e8eefc;
+    --agent: #7c5cd6; --model: #2f7de1; --tool: #d98b1f; --other: #9aa0a6; --error: #d1453b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #17181a; --fg: #e6e6e3; --muted: #9a9ea6; --line: #2c2e32; --hover: #202226; --selected: #23304a;
+      --agent: #a48ef0; --model: #5b9ff0; --tool: #f0aa48; --other: #7c828a; --error: #f07065;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 14px/1.4 system-ui, sans-serif; }
+  header { padding: 14px 16px; border-bottom: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; flex-wrap: wrap; }
+  h1 { font-size: 16px; margin: 0; }
+  .muted { color: var(--muted); }
+  main { display: grid; grid-template-columns: minmax(280px, 380px) 1fr; min-height: calc(100vh - 50px); }
+  @media (max-width: 760px) { main { grid-template-columns: 1fr; } }
+  #runs { border-right: 1px solid var(--line); overflow: auto; }
+  .run { padding: 10px 16px; border-bottom: 1px solid var(--line); cursor: pointer; }
+  .run:hover { background: var(--hover); }
+  .run.selected { background: var(--selected); }
+  .run .name { font-weight: 600; overflow-wrap: anywhere; }
+  .stats { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .err { color: var(--error); }
+  #detail { padding: 16px; overflow: auto; }
+  .row { display: grid; grid-template-columns: minmax(180px, 40%) 1fr; gap: 12px; align-items: center; padding: 3px 0; }
+  .label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 13px; }
+  .track { position: relative; height: 16px; }
+  .bar { position: absolute; height: 100%; border-radius: 3px; min-width: 2px; }
+  .agent { background: var(--agent); } .model { background: var(--model); } .tool { background: var(--tool); } .other { background: var(--other); }
+  .bar.failed { outline: 2px solid var(--error); }
+  .tag { font-size: 11px; padding: 0 5px; border-radius: 3px; color: #fff; margin-right: 6px; }
+  .empty { padding: 24px 16px; color: var(--muted); }
+  code { font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Agent traces</h1>
+  <span class="muted" id="summary"></span>
+</header>
+<main>
+  <section id="runs"></section>
+  <section id="detail"><p class="empty">Select a run.</p></section>
+</main>
+<script>
+  // Everything from a trace is shown as text, never as HTML: span names come from the traced app.
+  const escape = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+  const ms = (n) => (n >= 1000 ? `${(n / 1000).toFixed(2)} s` : `${Math.round(n)} ms`);
+  const tokens = (i, o) => (i || o ? `${i.toLocaleString()} in, ${o.toLocaleString()} out` : "no token counts");
+  let selected = null;
+  // Redrawing replaces the elements, and a click that lands mid-redraw is lost, so only redraw
+  // what changed.
+  const drawn = new Map();
+  const draw = (id, html) => {
+    if (drawn.get(id) === html) return;
+    drawn.set(id, html);
+    document.getElementById(id).innerHTML = html;
+  };
+
+  async function refresh() {
+    const runs = await (await fetch("/api/traces")).json();
+    document.getElementById("summary").textContent = `${runs.length} runs, newest first. Updates every 2 seconds.`;
+    draw("runs", runs.length === 0
+      ? `<p class="empty">No traces yet. Point an app at this server with <code>OTEL_EXPORTER_OTLP_ENDPOINT=${escape(location.origin)}</code> and <code>OTEL_EXPORTER_OTLP_PROTOCOL=http/json</code>.</p>`
+      : runs.map((r) => `
+        <div class="run${r.traceId === selected ? " selected" : ""}" data-id="${escape(r.traceId)}">
+          <div class="name">${escape(r.name)}</div>
+          <div class="stats">${escape(new Date(r.start).toLocaleTimeString())} · ${ms(r.duration)} · ${r.modelCalls} model, ${r.toolCalls} tool calls · ${tokens(r.inputTokens, r.outputTokens)}${r.errors ? ` · <span class="err">${r.errors} failed</span>` : ""}</div>
+        </div>`).join(""));
+    if (selected) show(selected);
+  }
+
+  async function show(id) {
+    selected = id;
+    const response = await fetch(`/api/traces/${id}`);
+    if (!response.ok) { draw("detail", `<p class="empty">${escape((await response.json()).message)}</p>`); return; }
+    const { run, calls } = await response.json();
+    const total = Math.max(run.duration, 1);
+    draw("detail", `
+      <h2 style="margin:0 0 4px;font-size:16px">${escape(run.name)}</h2>
+      <p class="stats" style="margin:0 0 14px">${escape(run.service)} · ${ms(run.duration)} · ${tokens(run.inputTokens, run.outputTokens)}</p>
+      ${calls.map((c) => {
+        const what = [c.model, c.tool && `tool ${c.tool}`, c.inputTokens !== undefined ? `${c.inputTokens}→${c.outputTokens ?? 0} tokens` : ""].filter(Boolean).join(" · ");
+        return `<div class="row" title="${escape(c.name)}${c.error ? ` — ${escape(c.error)}` : ""}">
+          <div class="label" style="padding-left:${c.depth * 14}px"><span class="tag ${c.kind}">${c.kind}</span>${escape(c.name)} <span class="muted">${escape(what)} · ${ms(c.duration)}</span>${c.error ? ` <span class="err">${escape(c.error)}</span>` : ""}</div>
+          <div class="track"><div class="bar ${c.kind}${c.error ? " failed" : ""}" style="left:${(c.offset / total) * 100}%;width:${(c.duration / total) * 100}%"></div></div>
+        </div>`;
+      }).join("")}`);
+  }
+
+  document.getElementById("runs").addEventListener("click", (e) => {
+    const run = e.target.closest(".run");
+    if (run) { selected = run.dataset.id; refresh(); }
+  });
+  refresh();
+  setInterval(refresh, 2000);
+</script>
+</body>
+</html>
