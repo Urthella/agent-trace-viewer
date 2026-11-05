@@ -192,6 +192,32 @@ test("a run sent by the real OpenTelemetry SDK and exporter adds up", async () =
     [["agent", 0, ""], ["model", 1, ""], ["tool", 1, "search_flights"], ["tool", 1, "get_weather"], ["model", 1, ""]],
   );
   assert.equal(calls[3].error, "timed out after 5 s");
+  // What the tool got and returned, read back from the JSON strings it was recorded as.
+  assert.deepEqual(calls[2].contents, {
+    "gen_ai.tool.call.arguments": { from: "IST", to: "LIS", date: "2026-12-03" },
+    "gen_ai.tool.call.result": [{ flight: "TK1759", departs: "08:40", price: 212 }],
+  });
+  assert.deepEqual(calls[4].contents["gen_ai.response.finish_reasons"], ["stop"]);
+  assert.equal(calls[4].contents["gen_ai.output.messages"][0].role, "assistant");
+  assert.equal(calls[1].contents, undefined);
   assert.equal(calls[1].model, "claude-sonnet-5-5");
   assert.equal(calls[1].provider, "anthropic");
+});
+
+test("contents that aren't valid JSON are shown as they are", () => {
+  const [call] = describe(
+    spans(
+      otlpSpan("e000000000000001", "", {
+        "gen_ai.operation.name": "execute_tool",
+        "gen_ai.tool.call.arguments": "{not json",
+        "gen_ai.tool.call.result": "plain text",
+        "gen_ai.input.messages": '[{"role":"user"}]',
+      }),
+    ),
+  );
+  assert.deepEqual(call.contents, {
+    "gen_ai.input.messages": [{ role: "user" }],
+    "gen_ai.tool.call.arguments": "{not json",
+    "gen_ai.tool.call.result": "plain text",
+  });
 });
