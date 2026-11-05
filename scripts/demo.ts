@@ -9,7 +9,7 @@ import { SimpleSpanProcessor, TracerProvider } from "@opentelemetry/sdk-trace";
 /** A trip-planning agent: two model calls and two tool calls, one of which times out. */
 export function emitAgentRun(tracer: Tracer, start = Date.now()): void {
   const at = (ms: number) => new Date(start + ms);
-  const child = (parent: Span, name: string, from: number, attributes: Record<string, string | number>) =>
+  const child = (parent: Span, name: string, from: number, attributes: Record<string, string | number | string[]>) =>
     tracer.startSpan(name, { startTime: at(from), attributes }, trace.setSpan(context.active(), parent));
 
   const agent = tracer.startSpan("invoke_agent trip-planner", {
@@ -29,6 +29,9 @@ export function emitAgentRun(tracer: Tracer, start = Date.now()): void {
     "gen_ai.operation.name": "execute_tool",
     "gen_ai.tool.name": "search_flights",
     "gen_ai.tool.call.id": "call_1",
+    // Recorded only when an instrumentation captures content, as JSON in a string.
+    "gen_ai.tool.call.arguments": JSON.stringify({ from: "IST", to: "LIS", date: "2026-12-03" }),
+    "gen_ai.tool.call.result": JSON.stringify([{ flight: "TK1759", departs: "08:40", price: 212 }]),
   }).end(at(2100));
   const weather = child(agent, "execute_tool get_weather", 1420, {
     "gen_ai.operation.name": "execute_tool",
@@ -37,7 +40,15 @@ export function emitAgentRun(tracer: Tracer, start = Date.now()): void {
   });
   weather.setStatus({ code: 2, message: "timed out after 5 s" });
   weather.end(at(1900));
-  child(agent, "chat claude-sonnet-5-5", 2120, { ...model, "gen_ai.usage.input_tokens": 850, "gen_ai.usage.output_tokens": 190 }).end(at(3900));
+  child(agent, "chat claude-sonnet-5-5", 2120, {
+    ...model,
+    "gen_ai.usage.input_tokens": 850,
+    "gen_ai.usage.output_tokens": 190,
+    "gen_ai.response.finish_reasons": ["stop"],
+    "gen_ai.output.messages": JSON.stringify([
+      { role: "assistant", parts: [{ type: "text", content: "TK1759 leaves at 08:40 for 212 EUR. I couldn't get the weather." }] },
+    ]),
+  }).end(at(3900));
   agent.end(at(3950));
 }
 

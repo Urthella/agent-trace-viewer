@@ -36,6 +36,34 @@ export interface Call {
   inputTokens?: number;
   outputTokens?: number;
   error?: string;
+  /** What the call sent and got back, when the instrumentation records it. */
+  contents?: Record<string, unknown>;
+}
+
+/**
+ * Attributes with a call's contents. Instrumentations record these only when told to capture
+ * content, since they can hold anything a user typed. They're often JSON in a string.
+ */
+const CONTENTS = [
+  "gen_ai.system_instructions",
+  "gen_ai.input.messages",
+  "gen_ai.output.messages",
+  "gen_ai.tool.call.arguments",
+  "gen_ai.tool.call.result",
+  "gen_ai.response.finish_reasons",
+];
+
+function contentsOf(attributes: Record<string, unknown>): Record<string, unknown> | undefined {
+  const found = CONTENTS.filter((key) => attributes[key] !== undefined).map((key) => {
+    const value = attributes[key];
+    if (typeof value !== "string" || !/^\s*[[{]/.test(value)) return [key, value];
+    try {
+      return [key, JSON.parse(value)];
+    } catch {
+      return [key, value];
+    }
+  });
+  return found.length > 0 ? Object.fromEntries(found) : undefined;
 }
 
 export interface Run {
@@ -87,6 +115,7 @@ export function describe(spans: Span[]): Call[] {
         inputTokens: count(a["gen_ai.usage.input_tokens"]),
         outputTokens: count(a["gen_ai.usage.output_tokens"]),
         error: s.error,
+        contents: contentsOf(a),
       });
       visit(s.spanId, depth + 1);
     }

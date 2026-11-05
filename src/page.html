@@ -39,6 +39,9 @@
   .tag { font-size: 11px; padding: 0 5px; border-radius: 3px; color: #fff; margin-right: 6px; }
   .empty { padding: 24px 16px; color: var(--muted); }
   code { font-size: 12px; }
+  .row.has-contents { cursor: pointer; }
+  .row.has-contents:hover .label { text-decoration: underline; text-decoration-color: var(--muted); }
+  .contents { background: var(--hover); border: 1px solid var(--line); border-radius: 4px; padding: 8px 10px; font-size: 12px; overflow: auto; max-height: 320px; white-space: pre-wrap; overflow-wrap: anywhere; }
 </style>
 </head>
 <body>
@@ -89,16 +92,28 @@
       <p class="stats" style="margin:0 0 14px">${escape(run.service)} · ${ms(run.duration)} · ${tokens(run.inputTokens, run.outputTokens)}</p>
       ${calls.map((c) => {
         const what = [c.model, c.tool && `tool ${c.tool}`, c.inputTokens !== undefined ? `${c.inputTokens}→${c.outputTokens ?? 0} tokens` : ""].filter(Boolean).join(" · ");
-        return `<div class="row" title="${escape(c.name)}${c.error ? ` — ${escape(c.error)}` : ""}">
-          <div class="label" style="padding-left:${c.depth * 14}px"><span class="tag ${c.kind}">${c.kind}</span>${escape(c.name)} <span class="muted">${escape(what)} · ${ms(c.duration)}</span>${c.error ? ` <span class="err">${escape(c.error)}</span>` : ""}</div>
+        const contents = c.contents && open.has(c.spanId)
+          ? `<pre class="contents" style="margin-left:${c.depth * 14}px">${escape(JSON.stringify(c.contents, null, 2))}</pre>`
+          : "";
+        return `<div class="row${c.contents ? " has-contents" : ""}" data-span="${escape(c.spanId)}" title="${escape(c.name)}${c.error ? ` — ${escape(c.error)}` : ""}">
+          <div class="label" style="padding-left:${c.depth * 14}px"><span class="tag ${c.kind}">${c.kind}</span>${c.contents ? `<span class="muted" title="contents">${open.has(c.spanId) ? "▾" : "▸"} </span>` : ""}${escape(c.name)} <span class="muted">${escape(what)} · ${ms(c.duration)}</span>${c.error ? ` <span class="err">${escape(c.error)}</span>` : ""}</div>
           <div class="track"><div class="bar ${c.kind}${c.error ? " failed" : ""}" style="left:${(c.offset / total) * 100}%;width:${(c.duration / total) * 100}%"></div></div>
-        </div>`;
+        </div>${contents}`;
       }).join("")}`);
   }
+
+  // Calls whose contents are shown. A call's contents are open until clicked again.
+  const open = new Set();
 
   document.getElementById("runs").addEventListener("click", (e) => {
     const run = e.target.closest(".run");
     if (run) { selected = run.dataset.id; refresh(); }
+  });
+  document.getElementById("detail").addEventListener("click", (e) => {
+    const row = e.target.closest(".row.has-contents");
+    if (!row) return;
+    open.has(row.dataset.span) ? open.delete(row.dataset.span) : open.add(row.dataset.span);
+    show(selected);
   });
   refresh();
   setInterval(refresh, 2000);

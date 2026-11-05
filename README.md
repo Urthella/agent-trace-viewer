@@ -51,6 +51,16 @@ and its model calls report their own, so adding up every span would count the sa
 The run's total comes from the model calls. Agent totals are used only when no model call reports
 any, and then only from agents that aren't inside another agent.
 
+## Contents
+
+Click a call marked ▸ to see what it sent and got back: tool arguments and results, input and
+output messages, system instructions and finish reasons. These are in the GenAI conventions as
+`gen_ai.tool.call.arguments`, `gen_ai.input.messages` and so on, and are often recorded as JSON in
+a string, which is shown parsed.
+
+Instrumentations record contents only when told to, since they can hold anything a user typed.
+They stay on your machine: the viewer keeps them in memory and sends nothing anywhere.
+
 ## Limits
 
 - **JSON only.** OTLP over HTTP defaults to protobuf in most SDKs, so set
@@ -64,14 +74,15 @@ any, and then only from agents that aren't inside another agent.
 
 ## How it's tested
 
-8 tests, with no network outside the machine. One sends a whole agent run through the real
+9 tests, with no network outside the machine. One sends a whole agent run through the real
 OpenTelemetry SDK and OTLP exporter into a running viewer, and checks the totals: 1,450 tokens in,
-not 2,900, though the agent span reports the same tokens as its model calls. Others cover the
+not 2,900, though the agent span reports the same tokens as its model calls, and the tool
+arguments and results it recorded. Others cover the
 OTLP JSON encoding (hex and base64 IDs, int64 as strings, nested values, error status), runs with
 missing parents, the store's limits, and the server's answers to protobuf, gzip, bad JSON and a
 body over 16 MB.
 
-To check that the tests can fail, 14 bugs were planted one at a time, and every one was caught.
+To check that the tests can fail, 17 bugs were planted one at a time, and every one was caught.
 
 Two real bugs turned up while running it:
 
